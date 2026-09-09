@@ -1,21 +1,11 @@
-name: ponytail
-version: 4.9.0
-description: Lazy senior dev mode for Hermes Agent, always-on context, bundled skills, and slash commands.
-author: Dietrich Gebert
+name: ponytail-sanitized
+version: "4.9.0-sanitized"
+description: "Sanitized Ponytail-style minimalism guidance for Hermes Agent; local context injection only."
+author: "Joe Crandall (sanitized from DietrichGebert/ponytail)"
 provides_hooks:
   - pre_llm_call
-  - pre_gateway_dispatch
 provides_commands:
   - ponytail
-  - ponytail-review
-  - ponytail-audit
-  - ponytail-debt
-  - ponytail-gain
   - ponytail-help
 provides_skills:
   - ponytail
-  - ponytail-review
-  - ponytail-audit
-  - ponytail-debt
-  - ponytail-gain
-  - ponytail-help

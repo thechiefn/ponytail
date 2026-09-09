@@ -1,0 +1,2 @@
+Generated allowlist: plugin.yaml, __init__.py, SKILL.md, README.md, LICENSE, UPSTREAM_COMMIT, and sanitizer controls only.
+Excluded: benchmarks, hooks, pi-extension, ponytail-mcp, package manifests, upstream CI, and executable build tooling.
