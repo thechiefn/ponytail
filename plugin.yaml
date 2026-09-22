@@ -1,5 +1,5 @@
 name: ponytail-sanitized
-version: "4.9.0-sanitized"
+version: "4.10.0-sanitized"
 description: "Sanitized Ponytail-style minimalism guidance for Hermes Agent; local context injection only."
 author: "Joe Crandall (sanitized from DietrichGebert/ponytail)"
 provides_hooks:

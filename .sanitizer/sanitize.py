@@ -11,7 +11,7 @@ import shutil
 from pathlib import Path
 
 PLUGIN_YAML = """name: ponytail-sanitized
-version: \"4.9.0-sanitized\"
+version: \"4.10.0-sanitized\"
 description: \"Sanitized Ponytail-style minimalism guidance for Hermes Agent; local context injection only.\"
 author: \"Joe Crandall (sanitized from DietrichGebert/ponytail)\"
 provides_hooks:
@@ -97,7 +97,7 @@ def register(ctx) -> None:
 
 SKILL_MD = """---
 name: ponytail
-version: \"4.9.0-sanitized\"
+version: \"4.10.0-sanitized\"
 description: Sanitized minimal-change engineering guidance.
 ---
 

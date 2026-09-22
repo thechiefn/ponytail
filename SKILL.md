@@ -1,6 +1,6 @@
 ---
 name: ponytail
-version: "4.9.0-sanitized"
+version: "4.10.0-sanitized"
 description: Sanitized minimal-change engineering guidance.
 ---
 
