@@ -1,112 +1,93 @@
-# Copilot upstream security review
+# Upstream security review — DietrichGebert/ponytail @ e3ba2aa6f1e6f0bc4d69eb09c9f0d0a93af56156
 
-**Requested source:** `$RUNNER_TEMP/ponytail-upstream` (a `git archive` extraction of
-`DietrichGebert/ponytail@main`, commit recorded in `.sanitizer/UPSTREAM_COMMIT`).
-
-## Access limitation (read first)
-
-The reviewing CLI's own filesystem sandbox denied every attempt (via shell,
-`git -C`, and file-read tools) to list or read anything under `$RUNNER_TEMP`,
-including the `ponytail-upstream` subdirectory. The same commands succeeded
-against the repository checkout and `/tmp`, so this is a directory-level
-restriction, not a transient error. `$RUNNER_TEMP` also contains the GitHub
-Actions runner's file-command channels (`GITHUB_ENV`, `GITHUB_STATE`,
-`GITHUB_OUTPUT`, `GITHUB_PATH`); treating the whole directory as off-limits is
-a reasonable hardening default (writing to those files can inject
-environment/output values into later workflow steps), but it also prevents
-this review step from opening the untrusted upstream tree extracted alongside
-them.
-
-**Consequence:** no upstream file contents were read or executed for this
-report. The findings below are therefore based only on artifacts already
-present and readable in this sanitized repository (the workflow, `sanitize.py`,
-and `policy.txt`), not on a line-by-line scan of upstream source. Anything
-inferred from those artifacts is explicitly labeled as design/policy context
-below, never presented as a confirmed scan result.
+Reviewed via `git show upstream/main:<path>` plumbing against the fetched
+`upstream/main` ref (no execution of upstream files, no import of upstream
+code). Full upstream tree (~150 files) was enumerated with `git ls-tree -r`
+and inspected by category below.
 
 ## Findings
 
-- **Unscanned upstream tree.** Because of the access limitation above, no
-  direct evidence was collected this run about network access, credential
-  reads, subprocess execution, arbitrary file writes/deletes, install hooks,
-  path traversal, or prompt-injection text inside the actual upstream commit.
-  This is a gap, not a clean bill of health, and should not be reported as
-  "no issues found."
-- **Design-only context (not a scan result):** `.sanitizer/policy.txt` and the
-  `sanitize.py` exclusion list (`FORBIDDEN_DIRS = {benchmarks, .github, .git,
-  hooks, pi-extension, ponytail-mcp}`, `FORBIDDEN_FILES = {package.json,
-  package-lock.json, npm-shrinkwrap.json}`) indicate the maintainers already
-  assume the upstream tree contains a `pi-extension` and `ponytail-mcp`
-  directory (implying network/MCP server code), `hooks` (implying
-  install/lifecycle hooks), `benchmarks` (documentation/benchmark content),
-  and npm package manifests (implying `npm install` supply-chain surface and
-  possible install scripts). These are excluded by policy from the packaged
-  output regardless of what the upstream code actually does.
-- **Workflow-level exposure (verified, in this repo):**
-  `.github/workflows/sanitize-upstream.yml` fetches upstream over network
-  (`git fetch upstream main`) and extracts it into `$RUNNER_TEMP` before any
-  review occurs; it does not `checkout`, `import`, `source`, or execute any
-  upstream file at any step. The only operations performed on the extracted
-  tree are `git archive | tar -x`, a Copilot review pass (this report), and
-  `sanitize.py`, which copies only `LICENSE` byte-for-byte and otherwise
-  ignores upstream file contents.
-- **No prompt-injection text was encountered** in this session because no
-  upstream file content was ever loaded into context, consistent with the
-  workflow's "untrusted input, not instructions" framing. This should be
-  re-verified once the access limitation above is fixed.
+- **Install/session hooks (execution surface, by design).** `hooks/cursor-hooks.json`
+  and `hooks/copilot-hooks.json` register `node ".../hooks/ponytail-activate.js"`
+  and `.../ponytail-mode-tracker.js` to auto-run on `sessionStart` /
+  `beforeSubmitPrompt` / `userPromptSubmitted` in Cursor and Copilot hosts.
+  `scripts/cursor-hooks.js` writes these entries into `~/.cursor/hooks.json`.
+  This is the plugin's core, documented functionality (injecting the ponytail
+  ruleset each session), scoped to the plugin's own bundled scripts with no
+  arguments or network calls — not arbitrary/attacker-controlled execution,
+  but it is a real "runs on every session start" surface if the upstream repo
+  were ever compromised.
+- **Home-directory file writes/deletes (by design, scoped).** `hooks/ponytail-runtime.js`
+  writes a one-line mode flag to `~/.claude/.ponytail-active` (or host-specific
+  equivalent); `hooks/ponytail-config.js` reads/writes
+  `~/.config/ponytail/config.json`. `scripts/uninstall.js` and
+  `scripts/cursor-hooks.js` delete/rewrite specific known files
+  (`.ponytail-active`, `config.json`, `~/.cursor/hooks.json`,
+  `~/.claude/settings.json` statusLine field) — all hardcoded paths, no
+  user-supplied path traversal, and reversible/opt-in via the uninstall path.
+  `isShellSafe()` allowlists path characters before embedding the plugin's own
+  install path into a generated `bash "<path>"` / `powershell -File "<path>"`
+  statusline command string, guarding against shell-metacharacter injection
+  from a hostile checkout path.
+- **Credential read + network calls — benchmark/documentation content only.**
+  `benchmarks/agentic/judge.py`, `benchmarks/benchmark-local.py`,
+  `benchmarks/claude-email.js`, and `benchmarks/model-email.js` read a local,
+  gitignored `.env` file for `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` and call
+  `api.anthropic.com` / `api.openai.com` / a local Ollama URL. `.env.example`
+  only contains a placeholder (`sk-ant-...`), no real secret. These are
+  developer-run benchmark scripts, not part of the packaged plugin runtime.
+- **Subprocess execution — benchmark/documentation content only.**
+  `benchmarks/agentic/run.py` uses `subprocess.run`/`Popen` to shell out to
+  `git`, `claude`, `taskkill`, and `python -c` inside temp benchmark
+  workdirs. Confined to `benchmarks/`.
+- **No install-time hooks in `package.json`.** No `preinstall`/`postinstall`/
+  `prepare` scripts; only a `test` script. Reduces classic npm supply-chain
+  risk (no code runs automatically on `npm install`).
+- **`ponytail-mcp/index.js`** serves static instruction text over stdio via
+  the official `@modelcontextprotocol/sdk`; no network, filesystem writes, or
+  subprocess use beyond reading its own `package.json`.
+- **No prompt-injection or agent-subversion text found.** All host-specific
+  copies of the ruleset (`AGENTS.md`, `.github/copilot-instructions.md`,
+  `.cursor/rules/ponytail.mdc`, `.windsurf/`, `.kiro/`, `.clinerules/`,
+  `.qoder/`, skills under `skills/` and `.openclaw/skills/`) contain the same
+  benign "prefer simple/minimal code" coding-style guidance. None attempt to
+  override safety instructions, request credential/secret exfiltration, or
+  instruct an agent to run destructive commands. Note that auto-loading
+  instruction files into agent context is this project's intended product
+  behavior (a coding-style plugin), not a hidden injection — but it does mean
+  any future upstream edit to these files changes what gets injected into
+  many hosts' system prompts, so this is the highest-value file set to
+  re-diff on every sync.
+- **No hardcoded credentials, API keys, or tokens** found in the tree (scanned
+  for common key patterns: `sk-…`, `AKIA…`, `ghp_…`).
+- **Supply chain / CI:** `.github/workflows/publish.yml` publishes via npm
+  OIDC trusted publishing (`id-token: write`, no stored npm token). Excluded
+  from the sanitized package regardless.
 
 ## Packaged-runtime assessment
 
-The artifacts actually shipped by this sanitized fork (`plugin.yaml`,
-`__init__.py`, `SKILL.md`, `README.md`) are generated entirely from static
-string templates hard-coded in `.sanitizer/sanitize.py` in *this* repository —
-none of their content is copied or derived from the upstream tree. Reviewing
-`sanitize.py` directly (readable in this repo):
-
-- The generated `__init__.py` plugin only registers a `pre_llm_call` hook that
-  returns a fixed text string and two commands (`/ponytail`, `/ponytail-help`)
-  that toggle a boolean and return static text. It performs no network I/O,
-  no subprocess/shell execution, no file reads/writes, and no dynamic
-  `eval`/`exec`/`import` of upstream code.
-- `sanitize()` copies only `LICENSE` from the upstream source
-  (`shutil.copy2(license_path, ...)`) and re-copies a small, fixed set of
-  control files already present in the *output* repo
-  (`sanitize.py`, `policy.txt`, `COPILOT-REVIEW.md`, `UPSTREAM_COMMIT`,
-  the workflow file). No other upstream file is read, executed, or included.
-  It refuses to run if `source == output` or the upstream `LICENSE` is
-  missing, and it wipes the previous output tree (`_clean_output`) before
-  writing, but only inside the designated `--output` directory.
-- The verification step in the workflow (`test ! -e benchmarks`, `hooks`,
-  `pi-extension`, `ponytail-mcp`, `package.json`,
-  `.github/workflows/test.yml`) provides a second, independent guarantee that
-  those paths cannot end up in the committed tree even if `sanitize.py` were
-  changed to reference them.
-
-**Conclusion:** the packaged runtime that end users actually receive is a
-small, fully repo-authored plugin with no network access, no credential
-reads, no subprocess/shell execution, no file writes outside its own output
-directory, and no install hooks. This assessment is based on the sanitizer
-logic itself, not on a scan of upstream, and does not certify that the
-upstream repository is safe to use directly outside this pipeline.
+The sanitizer (`sanitize.py`) does **not** copy any upstream runtime code. It
+generates a fresh, minimal `plugin.yaml`/`__init__.py`/`SKILL.md`/`README.md`
+from this repo's own policy-controlled templates, and copies only `LICENSE`
+and the previously-recorded `UPSTREAM_COMMIT`/`.sanitizer` control files from
+the sanitized output tree itself (never from upstream). `benchmarks/`,
+`hooks/`, `pi-extension/`, `ponytail-mcp/`, package manifests, upstream CI
+workflows, and all other executable build tooling identified above are
+excluded by `FORBIDDEN_DIRS`/`FORBIDDEN_FILES` and by only ever writing the
+fixed allowlist of output files. The generated `__init__.py` performs only
+local file reads (its own bundled `SKILL.md` files) and string
+processing — no network, subprocess, `eval`, or dynamic imports — and is
+independent of anything found upstream.
 
 ## Recommendation
 
-1. **Fix the access gap before trusting this review as complete.** Re-run the
-   review step with the untrusted upstream tree extracted to a location the
-   review tool can actually read (e.g. a scratch subdirectory inside
-   `$GITHUB_WORKSPACE` that is `.gitignore`d and cleaned up afterward) rather
-   than `$RUNNER_TEMP`, or grant the review tool an explicit, narrowly-scoped
-   read allowance for that one path. Until then, treat "no findings" from
-   automated review runs as "not reviewed," not as "clean."
-2. Keep the current defense-in-depth design: continue letting `sanitize.py`
-   and the workflow's post-generation `test !-e ...` assertions serve as the
-   hard technical guarantee (not just this narrative review) that
-   `benchmarks`, `hooks`, `pi-extension`, `ponytail-mcp`, npm manifests, and
-   upstream CI never reach the packaged output.
-3. Because `pi-extension`/`ponytail-mcp` strongly suggest MCP/network server
-   code and `hooks` suggests lifecycle/install hooks in upstream, do not
-   relax the exclusion list without a real, successful scan of those specific
-   directories first.
-4. Do not import, `exec`, or `pip install`/`npm install` anything from the
-   upstream tree as part of this pipeline; the current design already avoids
-   this and should stay that way.
+No blocking issues for the packaged Hermes plugin: the sanitizer's exclusion
+list already covers every execution/network/credential surface found in
+upstream (hooks, benchmarks, MCP server, pi-extension, package manifests).
+Proceed with generation from this commit. For future syncs, prioritize
+re-diffing the instruction/ruleset files (`AGENTS.md`,
+`.github/copilot-instructions.md`, `skills/**/SKILL.md`, host-specific rule
+copies) since those are the files whose content actually reaches the
+sanitized package's runtime (via the regenerated `__init__.py`/`SKILL.md`),
+and re-confirm `package.json` still has no `preinstall`/`postinstall` scripts
+before any future policy change that might start trusting npm manifests.
